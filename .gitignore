@@ -12,7 +12,6 @@ dist
 dist-ssr
 *.local
 .env
-.env.example
 tsconfig.app.tsbuildinfo
 tsconfig.node.tsbuildinfo
 
