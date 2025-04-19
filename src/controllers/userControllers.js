@@ -10,6 +10,7 @@ const {
   sendVerificationEmail,
   sendNewPasswordEmail,
 } = require("../utils/email");
+const Posts = require("../models/Posts");
 const registerUser = async (req, res) => {
   try {
     const { username, email, password, dateOfBirth, gender } = req.body;
@@ -51,9 +52,7 @@ const verifyEmail = async (req, res) => {
     const { token } = req.query;
     const user = await User.findOne({ verificationToken: token });
     if (!user)
-      /*************  ✨ Codeium Command 🌟  *************/
       return res.status(400).json({ message: "Invalid verification token." });
-    /******  e799e31a-572a-45cc-9d28-570c67975d96  *******/
 
     user.isVerified = true;
     user.verificationToken = undefined; // Xóa mã xác minh
@@ -213,24 +212,32 @@ const changePassword = async (req, res) => {
   }
 };
 
-// Cập nhật ảnh đại diện
+const streamUpload = (buffer) => {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        folder: "social-media/profile-pictures",
+        resource_type: "image",
+      },
+      (error, result) => {
+        if (error) reject(error);
+        else resolve(result);
+      }
+    );
+    stream.end(buffer);
+  });
+};
+
 const updateProfilePicture = async (req, res) => {
   try {
-    const userId = req.user.userId; // Lấy ID người dùng từ token
-    const user = await User.findById(userId);
+    const userId = req.user.userId;
     const file = req.file;
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
-    }
 
-    // Kiểm tra nếu không có file được tải lên
-    if (!file) {
-      return res.status(400).json({
-        message: "No file uploaded",
-      });
-    }
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
 
-    // Kiểm tra định dạng file (chỉ chấp nhận jpg, png, gif, webp)
+    if (!file) return res.status(400).json({ message: "No file uploaded" });
+
     const allowedMimeTypes = [
       "image/jpeg",
       "image/png",
@@ -239,47 +246,51 @@ const updateProfilePicture = async (req, res) => {
     ];
     if (!allowedMimeTypes.includes(file.mimetype)) {
       return res.status(400).json({
-        status: "false",
         message:
           "Invalid file format. Only jpg, png, gif, and webp are allowed.",
       });
     }
 
-    // Kiểm tra kích thước file (không quá 2MB)
-    const maxSizeInBytes = 2 * 1024 * 1024; // 2MB
+    const maxSizeInBytes = 2 * 1024 * 1024;
     if (file.size > maxSizeInBytes) {
-      return res.status(400).json({
-        status: "false",
-
-        message: "File size exceeds 2MB.",
-      });
+      return res.status(400).json({ message: "File size exceeds 2MB." });
     }
 
-    // Upload ảnh từ bộ nhớ tạm lên Cloudinary
-    const result = await cloudinary.uploader.upload_stream(
-      {
-        folder: "social-media/profile-pictures", // Thư mục lưu ảnh
-        resource_type: "image", // Chỉ upload ảnh
-      },
-      (error, result) => {
-        if (error) {
-          return res.status(500).json({ message: error.message });
-        }
+    const result = await streamUpload(file.buffer);
 
-        // Cập nhật URL ảnh đại diện trong cơ sở dữ liệu
-        user.profilePicture = result.secure_url;
-        user.save();
+    user.profilePicture = result.secure_url;
+    await user.save();
 
-        return res.status(200).json({
-          status: "success",
-          message: "Profile picture updated successfully",
-          profilePicture: user.profilePicture,
-        });
-      }
-    );
+    return res.status(200).json({
+      status: "success",
+      message: "Profile picture updated successfully",
+      profilePicture: user.profilePicture,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
 
-    // Đọc dữ liệu ảnh từ bộ nhớ và upload lên Cloudinary
-    result.end(file.buffer); // req.file.buffer chứa dữ liệu ảnh từ bộ nhớ
+const removeProfilePicture = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ message: "User not found." });
+
+    // // Nếu ảnh hiện tại có (và là đường dẫn cloudinary), xóa luôn ảnh trên Cloudinary nếu cần
+    // if (user.profilePicture) {
+    //   // Nếu bạn dùng Cloudinary và ảnh là hosted
+    //   await deleteFromCloudinary(user.profilePicture); // Chỉ nếu có xử lý Cloudinary
+    // }
+
+    user.profilePicture = ""; // Đặt lại về rỗng
+    await user.save();
+
+    res.status(200).json({
+      status: "success",
+      message: "Profile picture removed successfully.",
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -417,22 +428,28 @@ const forgotPassword = async (req, res) => {
 };
 const getUserInfo = async (req, res) => {
   try {
-    const userId = req.user.userId; // Lấy userId từ token (cho người dùng hiện tại)
-    const { userId: paramUserId } = req.params; // Lấy userId từ URL (trang cá nhân của người dùng khác)
+    const userId = req.user.userId;
+    const { userId: paramUserId } = req.params;
+    const targetUserId = paramUserId || userId;
 
-    // Kiểm tra xem có userId trong params hay không (trang cá nhân của người khác)
-    const targetUserId = paramUserId || userId; // Nếu có paramUserId thì lấy userId từ URL, nếu không thì lấy userId của người dùng hiện tại
-
-    // Lấy thông tin người dùng từ database
-    const user = await User.findById(targetUserId).select("-password"); // Không lấy mật khẩu
-
-    if (!user) {
+    // Lấy user
+    const userDoc = await User.findById(targetUserId).select("-password");
+    if (!userDoc) {
       return res.status(404).json({ message: "User not found." });
     }
+
+    // Lấy số bài viết
+    const totalPosts = await Posts.countDocuments({ user: targetUserId });
+
+    // Chuyển sang plain object để thêm fields tùy chỉnh
+    const user = userDoc.toObject();
+    user.totalPosts = totalPosts;
+    user.totalFriends = user.friends.length;
 
     res.status(200).json({
       status: "success",
       user,
+      isCurrentUser: targetUserId === req.user.userId,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -762,5 +779,6 @@ module.exports = {
   updateBio,
   unfriendUser,
   getUserFriends,
-  searchUsers
+  searchUsers,
+  removeProfilePicture,
 };

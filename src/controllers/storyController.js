@@ -212,12 +212,35 @@ const deleteStory = async (req, res) => {
     const userId = req.user.userId;
     const { storyId } = req.params;
 
-    // Tìm câu chuyện
-    const story = await Story.findOneAndDelete({ _id: storyId, user: userId });
+    // Tìm câu chuyện trước khi xóa để lấy thông tin ảnh
+    const story = await Story.findOne({ _id: storyId, user: userId });
 
     if (!story) {
       return res.status(404).json({ message: "Story not found." });
     }
+
+    // Xóa các ảnh trên Cloudinary nếu có
+    if (story.images && story.images.length > 0) {
+      const deletePromises = story.images.map(imageUrl => {
+        if (imageUrl.includes('cloudinary')) {
+          // Lấy public_id từ URL Cloudinary
+          const publicId = imageUrl.split('/').pop().split('.')[0];
+          return cloudinary.uploader.destroy('social-media-story/' + publicId);
+        }
+        return Promise.resolve();
+      });
+
+      await Promise.all(deletePromises);
+    }
+
+    // Xóa nhạc trên Cloudinary nếu có
+    if (story.music && story.music.includes('cloudinary')) {
+      const musicPublicId = story.music.split('/').pop().split('.')[0];
+      await cloudinary.uploader.destroy('social-media-story/' + musicPublicId, { resource_type: 'video' });
+    }
+
+    // Xóa story
+    await Story.findByIdAndDelete(storyId);
 
     res.status(200).json({
       status: "success",
@@ -252,7 +275,20 @@ const updateStory = async (req, res) => {
     }
 
     // Xử lý xóa ảnh nếu có
-    if (imagesToRemove) {
+    if (imagesToRemove && imagesToRemove.length > 0) {
+      // Xóa ảnh trên Cloudinary
+      const deletePromises = imagesToRemove.map(imageUrl => {
+        if (imageUrl.includes('cloudinary')) {
+          // Lấy public_id từ URL Cloudinary
+          const publicId = imageUrl.split('/').pop().split('.')[0];
+          return cloudinary.uploader.destroy('social-media-story/' + publicId);
+        }
+        return Promise.resolve();
+      });
+      
+      await Promise.all(deletePromises);
+      
+      // Cập nhật mảng images trong story
       story.images = story.images.filter(
         (image) => !imagesToRemove.includes(image)
       );

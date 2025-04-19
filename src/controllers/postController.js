@@ -216,14 +216,31 @@ const deletePost = async (req, res) => {
     const userId = req.user.userId; // Lấy ID người dùng từ token
     const { postId } = req.params; // Lấy ID bài viết từ URL
 
-    // Tìm và xóa bài viết trong một bước
-    const post = await Post.findOneAndDelete({ _id: postId, user: userId });
+    // Tìm bài viết trước khi xóa để lấy thông tin ảnh
+    const post = await Post.findOne({ _id: postId, user: userId });
 
     if (!post) {
       return res
         .status(404)
         .json({ message: "Post not found or not authorized" });
     }
+
+    // Xóa các ảnh trên Cloudinary nếu có
+    if (post.images && post.images.length > 0) {
+      const deletePromises = post.images.map(imageUrl => {
+        if (imageUrl.includes('cloudinary')) {
+          // Lấy public_id từ URL Cloudinary
+          const publicId = imageUrl.split('/').pop().split('.')[0];
+          return cloudinary.uploader.destroy('social-media-posts/' + publicId);
+        }
+        return Promise.resolve();
+      });
+
+      await Promise.all(deletePromises);
+    }
+
+    // Xóa bài viết
+    await Post.findByIdAndDelete(postId);
 
     res.status(200).json({
       status: "success",
@@ -266,6 +283,20 @@ const updatePost = async (req, res) => {
 
     // Nếu có file upload, cập nhật ảnh
     if (files && files.length > 0) {
+      // Xóa ảnh cũ trên Cloudinary trước khi cập nhật ảnh mới
+      if (post.images && post.images.length > 0) {
+        const deletePromises = post.images.map(imageUrl => {
+          if (imageUrl.includes('cloudinary')) {
+            // Lấy public_id từ URL Cloudinary
+            const publicId = imageUrl.split('/').pop().split('.')[0];
+            return cloudinary.uploader.destroy('social-media-posts/' + publicId);
+          }
+          return Promise.resolve();
+        });
+        
+        await Promise.all(deletePromises);
+      }
+      
       const images = []; // Lưu URL ảnh mới
       const uploadPromises = files.map(
         (file) =>

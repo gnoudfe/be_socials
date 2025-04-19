@@ -17,8 +17,7 @@ const userSchema = new mongoose.Schema(
     sentFriendRequests: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],  // Danh sách đã gửi lời mời kết bạn
     gender: {
       type: String,
-      enum: ["male", "female", "other"],
-      default: "other",
+      default: "Other",
     }, // Giới tính
     isVerified: { type: Boolean, default: false },
     verificationToken: { type: String },

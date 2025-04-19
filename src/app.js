@@ -8,8 +8,13 @@ const usersRouter = require("./routes/user");
 const postsRoutes = require("./routes/post");
 const commentsRoutes = require("./routes/comment");
 const storyRoutes = require("./routes/story");
-const messageRoutes = require('./routes/message')
-app.use(cors());
+const messageRoutes = require("./routes/message");
+app.use(
+  cors({
+    origin: "http://localhost:3000",
+    credentials: true,
+  })
+);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());

@@ -2,6 +2,7 @@ const Post = require("../models/Posts");
 const Comment = require("../models/Comment");
 const Notification = require("../models/Notifications");
 const User = require("../models/Users");
+const cloudinary = require("../config/cloudinary.config");
 const createComment = async (req, res) => {
   try {
     const userId = req.user.userId; // Lấy ID người dùng từ middleware xác thực
@@ -31,18 +32,21 @@ const createComment = async (req, res) => {
     // Tải hình ảnh lên Cloudinary (nếu có)
     let imageUrl = null;
     if (file) {
-      await cloudinary.uploader
-        .upload_stream(
-          {
-            folder: "social-media-comments",
-            resource_type: "auto",
-          },
-          (error, result) => {
-            if (error) throw error;
-            imageUrl = result.secure_url;
-          }
-        )
-        .end(file.buffer);
+      // Sử dụng Promise để đảm bảo quá trình upload hoàn tất trước khi tiếp tục
+      imageUrl = await new Promise((resolve, reject) => {
+        cloudinary.uploader
+          .upload_stream(
+            {
+              folder: "social-media-comments",
+              resource_type: "auto",
+            },
+            (error, result) => {
+              if (error) return reject(error);
+              resolve(result.secure_url);
+            }
+          )
+          .end(file.buffer);
+      });
     }
 
     // Tạo comment mới
@@ -156,8 +160,29 @@ const deleteComment = async (req, res) => {
       });
     }
 
+    // Xóa ảnh trên Cloudinary nếu comment có ảnh
+    if (comment.image && comment.image.includes('cloudinary')) {
+      // Lấy public_id từ URL Cloudinary
+      const publicId = comment.image.split('/').pop().split('.')[0];
+      await cloudinary.uploader.destroy('social-media-comments/' + publicId);
+    }
+
     // Nếu là comment cha, xóa cả các reply liên quan
     if (comment.replies.length > 0) {
+      // Lấy tất cả các reply để kiểm tra và xóa ảnh
+      const replies = await Comment.find({ _id: { $in: comment.replies } });
+      
+      // Xóa ảnh của các reply trên Cloudinary nếu có
+      const deleteImagePromises = replies
+        .filter(reply => reply.image && reply.image.includes('cloudinary'))
+        .map(reply => {
+          const publicId = reply.image.split('/').pop().split('.')[0];
+          return cloudinary.uploader.destroy('social-media-comments/' + publicId);
+        });
+      
+      await Promise.all(deleteImagePromises);
+      
+      // Xóa các reply
       await Comment.deleteMany({ _id: { $in: comment.replies } });
     }
 

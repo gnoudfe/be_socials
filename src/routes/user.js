@@ -18,6 +18,7 @@ const {
   unfriendUser,
   getUserFriends,
   searchUsers,
+  removeProfilePicture,
 } = require("../controllers/userControllers");
 const authenticatedUser = require("../middlewares/authenticatedUser");
 
@@ -37,6 +38,9 @@ router.get("/user/:userId", authenticatedUser, getUserInfo);
 
 // Lấy thông tin chi tiết của chính người dùng đã đăng nhập
 router.get("/user-me", authenticatedUser, getUserInfo);
+
+// Xóa ảnh đại diện (đặt về mặc định rỗng "")
+router.delete("/profile-picture", authenticatedUser, removeProfilePicture);
 
 // Đăng xuất người dùng
 router.post("/logout", authenticatedUser, logoutUser);
