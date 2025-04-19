@@ -235,20 +235,11 @@ const updateProfilePicture = async (req, res) => {
 
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ message: "User not found" });
-
     if (!file) return res.status(400).json({ message: "No file uploaded" });
 
-    const allowedMimeTypes = [
-      "image/jpeg",
-      "image/png",
-      "image/gif",
-      "image/webp",
-    ];
+    const allowedMimeTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
     if (!allowedMimeTypes.includes(file.mimetype)) {
-      return res.status(400).json({
-        message:
-          "Invalid file format. Only jpg, png, gif, and webp are allowed.",
-      });
+      return res.status(400).json({ message: "Invalid file format." });
     }
 
     const maxSizeInBytes = 2 * 1024 * 1024;
@@ -256,9 +247,15 @@ const updateProfilePicture = async (req, res) => {
       return res.status(400).json({ message: "File size exceeds 2MB." });
     }
 
+    // XÓA ẢNH CŨ nếu có
+    if (user.profilePictureId) {
+      await cloudinary.uploader.destroy(user.profilePictureId);
+    }
+
     const result = await streamUpload(file.buffer);
 
     user.profilePicture = result.secure_url;
+    user.profilePictureId = result.public_id; // Lưu lại để lần sau xóa được
     await user.save();
 
     return res.status(200).json({
@@ -270,7 +267,6 @@ const updateProfilePicture = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
-
 const removeProfilePicture = async (req, res) => {
   try {
     const userId = req.user.userId;
@@ -278,13 +274,13 @@ const removeProfilePicture = async (req, res) => {
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ message: "User not found." });
 
-    // // Nếu ảnh hiện tại có (và là đường dẫn cloudinary), xóa luôn ảnh trên Cloudinary nếu cần
-    // if (user.profilePicture) {
-    //   // Nếu bạn dùng Cloudinary và ảnh là hosted
-    //   await deleteFromCloudinary(user.profilePicture); // Chỉ nếu có xử lý Cloudinary
-    // }
+    // XÓA ẢNH Cloudinary nếu có
+    if (user.profilePictureId) {
+      await cloudinary.uploader.destroy(user.profilePictureId);
+    }
 
-    user.profilePicture = ""; // Đặt lại về rỗng
+    user.profilePicture = "";
+    user.profilePictureId = ""; // Clear luôn id
     await user.save();
 
     res.status(200).json({
@@ -295,7 +291,6 @@ const removeProfilePicture = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
-
 // Cập nhật ảnh bìa
 const updateCoverPhoto = async (req, res) => {
   try {

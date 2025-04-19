@@ -6,6 +6,7 @@ const userSchema = new mongoose.Schema(
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
     profilePicture: { type: String, default: "" }, // Ảnh đại diện
+    profilePictureId: { type: String, default: "" },
     coverPhoto: { type: String, default: "" }, // Ảnh bìa
     bio: { type: String, default: "" },
     dateOfBirth: { type: Date, default: null },
