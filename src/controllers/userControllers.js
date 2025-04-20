@@ -237,7 +237,12 @@ const updateProfilePicture = async (req, res) => {
     if (!user) return res.status(404).json({ message: "User not found" });
     if (!file) return res.status(400).json({ message: "No file uploaded" });
 
-    const allowedMimeTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+    const allowedMimeTypes = [
+      "image/jpeg",
+      "image/png",
+      "image/gif",
+      "image/webp",
+    ];
     if (!allowedMimeTypes.includes(file.mimetype)) {
       return res.status(400).json({ message: "Invalid file format." });
     }
@@ -445,6 +450,7 @@ const getUserInfo = async (req, res) => {
       status: "success",
       user,
       isCurrentUser: targetUserId === req.user.userId,
+      currentUserId: req.user.userId,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -456,37 +462,37 @@ const sendFriendRequest = async (req, res) => {
     const userId = req.user.userId;
     const friendId = req.params.userId;
 
-    const sender = await User.findById(userId); // Lấy User gửi
-    const recipient = await User.findById(friendId); // Lấy User nhận
+    if (userId === friendId) {
+      return res
+        .status(400)
+        .json({ message: "You cannot add yourself as a friend." });
+    }
+
+    const sender = await User.findById(userId);
+    const recipient = await User.findById(friendId);
 
     if (!recipient || !sender) {
       return res.status(404).json({ message: "User not found." });
     }
 
-    // Kiểm tra nếu đã gửi lời mời kết bạn
     if (recipient.friendRequests.includes(userId)) {
       return res
         .status(400)
         .json({ message: "Friend request already sent to this user." });
     }
 
-    // Kiểm tra nếu User B đã trong danh sách bạn bè
     if (recipient.friends.includes(userId)) {
       return res
         .status(400)
         .json({ message: "This user is already your friend." });
     }
 
-    // Thêm User A vào danh sách `friendRequests` của User B
     recipient.friendRequests.push(userId);
-
-    // Thêm User B vào danh sách `sentFriendRequests` của User A
     sender.sentFriendRequests.push(friendId);
 
     await recipient.save();
     await sender.save();
 
-    // Lưu thông báo cho người nhận lời mời kết bạn
     const notification = new Notification({
       type: "friend-request",
       message: `${sender.username} sent you a friend request!`,
@@ -495,19 +501,19 @@ const sendFriendRequest = async (req, res) => {
     });
     await notification.save();
 
-    // // Gửi thông báo qua Pusher
-    // Pusher.trigger(`user-${friendId}`, "notification", {
-    //   id: notification._id,
-    //   type: notification.type,
-    //   message: notification.message,
-    //   sender: {
-    //     id: senderId,
-    //     username: req.user.username,
-    //     avatar: req.user.avatar,
-    //   },
-    //   isRead: notification.isRead,
-    //   createdAt: notification.createdAt,
-    // });
+    Pusher.trigger(`user-${friendId}`, "notification", {
+      id: notification._id,
+      type: notification.type,
+      message: notification.message,
+      sender: {
+        id: userId,
+        username: sender.username,
+        avatar: sender.profilePicture,
+      },
+      isRead: notification.isRead,
+      createdAt: notification.createdAt,
+    });
+
     res
       .status(200)
       .json({ status: "success", message: "Friend request sent." });
@@ -681,7 +687,7 @@ const getNotifications = async (req, res) => {
     // Lấy tất cả thông báo của người dùng
     const notifications = await Notification.find({ recipient: userId })
       .sort({ createdAt: -1 }) // Sắp xếp theo thời gian mới nhất
-      .populate("sender", "username avatar");
+      .populate("sender", "_id username email profilePicture friends");
 
     res.status(200).json({
       status: "success",
@@ -722,23 +728,19 @@ const getUserFriends = async (req, res) => {
 const searchUsers = async (req, res) => {
   try {
     const { keyword } = req.query;
+    const { userId } = req.user; // Assumes req.user is set by auth middleware
 
-    // Nếu không có từ khóa, trả về lỗi
     if (!keyword || keyword.trim() === "") {
       return res.status(400).json({
         message: "Keyword is required for search.",
       });
     }
 
-    // Tìm kiếm người dùng dựa trên username hoặc email (có thể thêm các trường khác nếu cần)
     const users = await User.find({
-      $or: [
-        { username: { $regex: keyword, $options: "i" } }, // Tìm kiếm không phân biệt chữ hoa/chữ thường
-        { email: { $regex: keyword, $options: "i" } },
-      ],
-    }).select("username email profilePicture");
+      _id: { $ne: userId }, // Không bao gồm chính người dùng đang đăng nhập
+      $or: [{ username: { $regex: keyword, $options: "i" } }],
+    }).select("_id username email profilePicture friends");
 
-    // Nếu không tìm thấy người dùng nào
     if (users.length === 0) {
       return res.status(404).json({
         message: "No users found.",
@@ -756,7 +758,6 @@ const searchUsers = async (req, res) => {
     });
   }
 };
-
 module.exports = {
   registerUser,
   verifyEmail,
