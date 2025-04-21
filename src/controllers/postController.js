@@ -34,12 +34,12 @@ const createPost = async (req, res) => {
         });
       }
 
-      // Kiểm tra kích thước file (không quá 2MB)
-      const maxSizeInBytes = 2 * 1024 * 1024; // 2MB
+      // Kiểm tra kích thước file (không quá 5MB)
+      const maxSizeInBytes = 5 * 1024 * 1024; // 5MB
       if (file.size > maxSizeInBytes) {
         return res.status(400).json({
           status: "false",
-          message: "File size exceeds 2MB.",
+          message: "File size exceeds 5MB.",
         });
       }
     }
@@ -107,36 +107,41 @@ const createPost = async (req, res) => {
 const getAllPosts = async (req, res) => {
   try {
     const userId = req.user.userId;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = parseInt(req.query.offset) || 0;
 
-    // Lấy thông tin người dùng từ database (để lấy danh sách bạn bè)
-    const user = await User.findById(userId); // Lấy thông tin người dùng hiện tại
-
+    // Lấy thông tin người dùng
+    const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ message: "User not found." });
     }
 
-    // Truy vấn các bài viết
-    const posts = await Post.find({
+    // Điều kiện truy vấn
+    const queryCondition = {
       $or: [
-        { visibility: "public" },
-        { visibility: "friends", user: { $in: [userId, ...user.friends] } }, // Lấy bài viết của bạn bè
-        { visibility: "private", user: userId }, // Lấy bài viết của chính mình
+        { visibility: "Public" },
+        { visibility: "Friends", user: { $in: [userId, ...user.friends] } },
+        { visibility: "Private", user: userId },
       ],
-    })
+    };
+
+    // Tổng số bài viết phù hợp
+    const totalPosts = await Post.countDocuments(queryCondition);
+
+    // Truy vấn bài viết với phân trang
+    const posts = await Post.find(queryCondition)
       .populate("user", "_id username profilePicture")
       .populate("likes", "_id username profilePicture")
       .populate("comments")
-      .sort([["createdAt", "desc"]]); // Sắp xếp theo thời gian đăng (mới nhất trước)
-
-    // // Sắp xếp bài viết theo visibility: private -> friends -> public
-    // const sortedPosts = posts.sort((a, b) => {
-    //   const visibilityOrder = { private: 0, friends: 1, public: 2 };
-    //   return visibilityOrder[a.visibility] - visibilityOrder[b.visibility];
-    // });
+      .sort({ createdAt: -1 }) // mới nhất trước
+      .skip(offset)
+      .limit(limit);
 
     res.status(200).json({
       status: "success",
-      posts: posts,
+      currentUserId: userId,
+      totals: totalPosts,
+      posts,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });

@@ -42,7 +42,7 @@ router.put(
 );
 
 // ✅ API xóa bài viết
-router.delete("/detail-posts/:postId", authenticatedUser, deletePost);
+router.delete("/posts/:postId", authenticatedUser, deletePost);
 
 // ✅ API like hoặc bỏ like bài viết
 router.put("/posts/:postId/like", authenticatedUser, likePost);
