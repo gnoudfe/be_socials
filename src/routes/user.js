@@ -19,6 +19,7 @@ const {
   getUserFriends,
   searchUsers,
   removeProfilePicture,
+  markNotificationAsRead,
 } = require("../controllers/userControllers");
 const authenticatedUser = require("../middlewares/authenticatedUser");
 
@@ -95,6 +96,9 @@ router.delete("/unfriend/:userId", authenticatedUser, unfriendUser);
 
 // Lấy danh sách thông báo của người dùng đã đăng nhập
 router.get("/get-notifications", authenticatedUser, getNotifications);
+
+// Đánh dấu thông báo đã đọc
+router.patch("/mark-notification-read/:notificationId", authenticatedUser, markNotificationAsRead);
 
 // Lấy danh sách bạn bè của user
 router.get("/get-friends", authenticatedUser, getUserFriends);

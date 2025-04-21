@@ -502,13 +502,13 @@ const sendFriendRequest = async (req, res) => {
     await notification.save();
 
     Pusher.trigger(`user-${friendId}`, "notification", {
-      id: notification._id,
+      _id: notification._id,
       type: notification.type,
       message: notification.message,
       sender: {
-        id: userId,
+        _id: userId,
         username: sender.username,
-        avatar: sender.profilePicture,
+        profilePicture: sender.profilePicture,
       },
       isRead: notification.isRead,
       createdAt: notification.createdAt,
@@ -563,20 +563,22 @@ const acceptFriendRequest = async (req, res) => {
     await notification.save();
 
     // // Gửi thông báo qua Pusher
-    // Pusher.trigger(`user-${friendId}`, "notification", {
-    //   id: notification._id,
-    //   type: notification.type,
-    //   message: notification.message,
-    //   sender: {
-    //     id: senderId,
-    //     username: req.user.username,
-    //     avatar: req.user.avatar,
-    //   },
-    //   isRead: notification.isRead,
-    //   createdAt: notification.createdAt,
-    // });
+    Pusher.trigger(`user-${friendId}`, "notification", {
+      _id: notification._id,
+      type: notification.type,
+      message: notification.message,
+      sender: {
+        _id: userId,
+        username: user.username,
+        profilePicture: user.profilePicture,
+      },
+      isRead: notification.isRead,
+      createdAt: notification.createdAt,
+    });
 
-    res.status(200).json({ message: "Friend request accepted." });
+    res
+      .status(200)
+      .json({ status: "success", message: "Friend request accepted." });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -609,14 +611,14 @@ const rejectFriendRequest = async (req, res) => {
     );
     await user.save();
     await friend.save();
-    // Lưu thông báo từ chối lời mời kết bạn
-    const notification = new Notification({
-      type: "friend-rejected",
-      message: `${user.username} rejected your friend request.`,
-      recipient: friendId,
-      sender: userId,
-    });
-    await notification.save();
+    // // Lưu thông báo từ chối lời mời kết bạn
+    // const notification = new Notification({
+    //   type: "friend-rejected",
+    //   message: `${user.username} rejected your friend request.`,
+    //   recipient: friendId,
+    //   sender: userId,
+    // });
+    // await notification.save();
 
     // // Gửi thông báo qua Pusher
     // Pusher.trigger(`user-${friendId}`, "notification", {
@@ -632,7 +634,9 @@ const rejectFriendRequest = async (req, res) => {
     //   createdAt: notification.createdAt,
     // });
 
-    res.status(200).json({ message: "Friend request rejected." });
+    res
+      .status(200)
+      .json({ status: "success", message: "Friend request rejected." });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -698,14 +702,50 @@ const getNotifications = async (req, res) => {
   }
 };
 
+// Đánh dấu thông báo đã đọc
+const markNotificationAsRead = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { notificationId } = req.params;
+
+    // Tìm thông báo cần đánh dấu đã đọc
+    const notification = await Notification.findById(notificationId);
+
+    if (!notification) {
+      return res.status(404).json({ message: "Notification not found" });
+    }
+
+    // Kiểm tra xem thông báo có thuộc về người dùng hiện tại không
+    if (notification.recipient.toString() !== userId) {
+      return res
+        .status(403)
+        .json({
+          message: "You don't have permission to mark this notification",
+        });
+    }
+
+    // Đánh dấu thông báo đã đọc
+    notification.isRead = true;
+    await notification.save();
+
+    res.status(200).json({
+      status: "success",
+      message: "Notification marked as read",
+      notification,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 const getUserFriends = async (req, res) => {
   try {
-    const { userId } = req.params;
+    const userId = req.user.userId;
 
     // Tìm người dùng và lấy danh sách bạn bè
     const user = await User.findById(userId).populate({
       path: "friends",
-      select: "username profilePicture bio",
+      select: "_id username profilePicture bio",
     });
 
     if (!user) {
@@ -769,6 +809,7 @@ module.exports = {
   acceptFriendRequest,
   rejectFriendRequest,
   getNotifications,
+  markNotificationAsRead,
   changePassword,
   updateProfilePicture,
   updateCoverPhoto,

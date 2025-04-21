@@ -49,7 +49,7 @@ const createPost = async (req, res) => {
         message: "Post content must not be empty.",
       });
     }
-    if (!visibility || !["private", "friends", "public"].includes(visibility)) {
+    if (!visibility) {
       return res.status(400).json({
         message: "Visibility must be 'private', 'friends', or 'public'.",
       });
@@ -90,6 +90,9 @@ const createPost = async (req, res) => {
 
     await post.save();
 
+    // Populate user info before sending back
+    await post.populate("user", "_id username profilePicture"); // chỉ populate các field cần thiết
+
     res.status(201).json({
       status: "success",
       message: "Post created successfully.",
@@ -120,36 +123,36 @@ const getAllPosts = async (req, res) => {
         { visibility: "private", user: userId }, // Lấy bài viết của chính mình
       ],
     })
-      // .populate("user", "username avatar") // Populate thông tin người dùng
-      // .populate("likes", "username avatar")
-      // .populate("comment")
+      .populate("user", "_id username profilePicture")
+      .populate("likes", "_id username profilePicture")
+      .populate("comments")
       .sort([["createdAt", "desc"]]); // Sắp xếp theo thời gian đăng (mới nhất trước)
 
-    // Sắp xếp bài viết theo visibility: private -> friends -> public
-    const sortedPosts = posts.sort((a, b) => {
-      const visibilityOrder = { private: 0, friends: 1, public: 2 };
-      return visibilityOrder[a.visibility] - visibilityOrder[b.visibility];
-    });
+    // // Sắp xếp bài viết theo visibility: private -> friends -> public
+    // const sortedPosts = posts.sort((a, b) => {
+    //   const visibilityOrder = { private: 0, friends: 1, public: 2 };
+    //   return visibilityOrder[a.visibility] - visibilityOrder[b.visibility];
+    // });
 
     res.status(200).json({
       status: "success",
-      posts: sortedPosts,
+      posts: posts,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
+// Get posts of the logged-in user
 const getUserPosts = async (req, res) => {
   try {
     const userId = req.user.userId;
 
-    // Lấy các bài viết của chính người dùng đó
     const posts = await Post.find({ user: userId })
-      .populate("user", "username avatar") // Thông tin người đăng bài
-      .populate("likes", "username avatar") // Thông tin người thích bài
-      .populate("comments") // Thông tin bình luận
-      .sort([["createdAt", "desc"]]); // Sắp xếp theo thời gian đăng mới nhất
+      .populate("user", " username profilePicture")
+      .populate("likes", " username profilePicture")
+      .populate("comments")
+      .sort({ createdAt: -1 });
 
     res.status(200).json({
       status: "success",
@@ -159,58 +162,84 @@ const getUserPosts = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
 const getOtherUserPosts = async (req, res) => {
   try {
-    const userId = req.user.userId;
-    const otherUserId = req.params.userId; // ID người mà bạn muốn xem trang cá nhân
+    const userId = req.user.userId; // Người đăng nhập hiện tại
+    const otherUserId = req.params.userId; // Trang cá nhân đang xem
 
-    // Lấy thông tin người dùng hiện tại và bạn bè của người đó
-    const user = await User.findById(userId);
-    const otherUser = await User.findById(otherUserId);
+    const [user, otherUser] = await Promise.all([
+      User.findById(userId),
+      User.findById(otherUserId),
+    ]);
 
     if (!user || !otherUser) {
       return res.status(404).json({ message: "User not found." });
     }
-    console.log("Other User's friends:", otherUser.friends);
-    console.log("Current User ID:", userId);
 
-    // Kiểm tra nếu userId có trong danh sách bạn bè của otherUser
-    const isFriend = otherUser.friends.includes(userId);
+    const isCurrentUser = userId === otherUserId;
 
-    // Lấy các bài viết công khai
-    const publicPosts = await Post.find({
-      visibility: "public",
-      user: otherUserId,
-    }).sort([["createdAt", "desc"]]); // Sắp xếp theo thời gian đăng mới nhất
+    let posts;
 
-    // Lấy các bài viết có visibility "friends" chỉ khi bạn là bạn bè
-    const friendPosts = isFriend
-      ? await Post.find({
-          visibility: "friends",
-          user: otherUserId,
-        }).sort([["createdAt", "desc"]])
-      : [];
+    if (isCurrentUser) {
+      // Trả tất cả post nếu là trang cá nhân của mình
+      posts = await Post.find({ user: otherUserId })
+        .populate("user", "_id username profilePicture")
+        .populate("likes", "_id username profilePicture")
+        .populate("comments")
+        .sort({ createdAt: -1 });
+    } else {
+      const isFriend = otherUser.friends.includes(userId);
 
-    // Gộp các bài viết công khai và bài viết bạn bè
-    const posts = [...publicPosts, ...friendPosts];
+      const visibilityConditions = [{ visibility: "Public" }];
+      if (isFriend) {
+        visibilityConditions.push({ visibility: "Friends" });
+      }
 
-    // Kiểm tra nếu không có bài viết nào của người dùng này
-    if (posts.length === 0) {
-      return res.status(200).json({
-        status: "success",
-        message: "No posts found.",
-        posts: [],
-      });
+      posts = await Post.find({
+        user: otherUserId,
+        $or: visibilityConditions,
+      })
+        .populate("user", "_id username profilePicture")
+        .populate("likes", "_id username profilePicture")
+        .populate("comments")
+        .sort({ createdAt: -1 });
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       status: "success",
+      isCurrentUser,
       posts,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
+
+const getPostDetail = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const postId = req.params.postId;
+
+    const post = await Post.findById(postId)
+      .populate("user", "_id username profilePicture")
+      .populate("likes", "_id username profilePicture")
+      .populate("comments");
+
+    if (!post) {
+      return res.status(404).json({ message: "Post not found" });
+    }
+
+    res.status(200).json({
+      status: "success",
+      currentUserId: userId,
+      post,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 const deletePost = async (req, res) => {
   try {
     const userId = req.user.userId; // Lấy ID người dùng từ token
@@ -227,11 +256,11 @@ const deletePost = async (req, res) => {
 
     // Xóa các ảnh trên Cloudinary nếu có
     if (post.images && post.images.length > 0) {
-      const deletePromises = post.images.map(imageUrl => {
-        if (imageUrl.includes('cloudinary')) {
+      const deletePromises = post.images.map((imageUrl) => {
+        if (imageUrl.includes("cloudinary")) {
           // Lấy public_id từ URL Cloudinary
-          const publicId = imageUrl.split('/').pop().split('.')[0];
-          return cloudinary.uploader.destroy('social-media-posts/' + publicId);
+          const publicId = imageUrl.split("/").pop().split(".")[0];
+          return cloudinary.uploader.destroy("social-media-posts/" + publicId);
         }
         return Promise.resolve();
       });
@@ -285,18 +314,20 @@ const updatePost = async (req, res) => {
     if (files && files.length > 0) {
       // Xóa ảnh cũ trên Cloudinary trước khi cập nhật ảnh mới
       if (post.images && post.images.length > 0) {
-        const deletePromises = post.images.map(imageUrl => {
-          if (imageUrl.includes('cloudinary')) {
+        const deletePromises = post.images.map((imageUrl) => {
+          if (imageUrl.includes("cloudinary")) {
             // Lấy public_id từ URL Cloudinary
-            const publicId = imageUrl.split('/').pop().split('.')[0];
-            return cloudinary.uploader.destroy('social-media-posts/' + publicId);
+            const publicId = imageUrl.split("/").pop().split(".")[0];
+            return cloudinary.uploader.destroy(
+              "social-media-posts/" + publicId
+            );
           }
           return Promise.resolve();
         });
-        
+
         await Promise.all(deletePromises);
       }
-      
+
       const images = []; // Lưu URL ảnh mới
       const uploadPromises = files.map(
         (file) =>
@@ -404,4 +435,5 @@ module.exports = {
   deletePost,
   updatePost,
   likePost,
+  getPostDetail,
 };
