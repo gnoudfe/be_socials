@@ -13,11 +13,11 @@ const {
   getPostDetail,
 } = require("../controllers/postController");
 
-// ✅ API tạo bài viết (tối đa 10 ảnh)
+// ✅ API tạo bài viết (tối đa 5 ảnh)
 router.post(
   "/create-post",
   authenticatedUser,
-  upload.array("images", 10),
+  upload.array("images", 5),
   createPost
 );
 

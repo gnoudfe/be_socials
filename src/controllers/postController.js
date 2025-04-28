@@ -55,28 +55,32 @@ const createPost = async (req, res) => {
       });
     }
 
-    // Sử dụng Promise.all để đợi tất cả ảnh tải lên Cloudinary hoàn tất
     const uploadPromises = files.map((file) => {
       return new Promise((resolve, reject) => {
         cloudinary.uploader
           .upload_stream(
             {
-              folder: "social-media-posts", // Thư mục lưu ảnh trên Cloudinary
-              resource_type: "auto", // Tự động nhận dạng kiểu file
+              folder: "social-media-posts",
+              resource_type: "auto",
             },
             (error, result) => {
               if (error) {
-                reject(error);
+                return reject(error); // return ở đây!
               }
-              // Nếu upload thành công, thêm URL ảnh vào mảng images
-              images.push(result.secure_url);
-              resolve(result.secure_url);
+
+              if (result && result.secure_url) {
+                images.push(result.secure_url);
+                resolve(result.secure_url);
+              } else {
+                reject(
+                  new Error("Cloudinary upload failed: No result returned")
+                );
+              }
             }
           )
-          .end(file.buffer); // Đọc file ảnh từ bộ nhớ và upload lên Cloudinary
+          .end(file.buffer);
       });
     });
-
     // Đợi tất cả ảnh được upload xong
     await Promise.all(uploadPromises);
 
